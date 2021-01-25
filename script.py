@@ -45,6 +45,54 @@ def create_cw_dashboard(ec2_list, networklimit):
         }
         widgets['widgets'].append(new_widget)
 
+        ## Instance -> Internet Gateway
+        ec2instance_type = ec2.Instance(ec2instance)
+        ec2_details = ec2client.describe_instance_types(InstanceTypes=[ec2instance_type.instance_type])
+        new_widget = {
+            "type": "text",
+            "width": 24,
+            "height": 2,
+            "properties": {
+                "markdown": "\n## " + "EC2 (" + ec2instance_type.instance_type + ") --> " + "Internet Gateway" +"\n"
+            }
+        }
+        widgets['widgets'].append(new_widget)
+        ec2_NetworkInfo = ec2_details['InstanceTypes'][0]['NetworkInfo']
+        # Extract the number
+        numbers = []
+        for word in ec2_NetworkInfo['NetworkPerformance'].split():
+            if word.isdigit():
+                numbers.append(int(word))
+
+        new_widget = {
+            "type": "metric",
+            "width": 24,
+            "properties": {
+                "metrics": [
+                    [ { "expression": "m1/PERIOD(m1)+m1/PERIOD(m2)", "label": "Total Bandwidth", "id": "e1", "visible": False } ], #((read bytes * read ops) + (write bytes * write ops)) / period
+                    [ { "expression": "e1*0.000008", "label": "Bandwidth (Mbps)", "id": "e2" } ], # Convert Bytes to Megabits -> 1 B = 0.000008 Mb
+                    [ "AWS/EC2", "NetworkIn", "InstanceId", ec2instance, { "visible": False, "id": "m1" } ],
+                    [ ".", "NetworkOut", ".", ".", { "visible": False, "id": "m2" } ]
+                ],
+                "view": "timeSeries",
+                "stacked": False,
+                "region": region,
+                "stat": "Sum",
+                "period": 300,
+                "title": ec2instance + " -> IG",
+                "annotations": {
+                    "horizontal": [
+                        {
+                            "label": "Maximum Throughput (Mbps)",
+                            "value": numbers[0]*1000
+                        }
+                    ]
+                }
+            }
+        }
+        widgets['widgets'].append(new_widget)
+
+
         ## Instance -> EBS
         new_widget = {
             "type": "text",
@@ -55,9 +103,12 @@ def create_cw_dashboard(ec2_list, networklimit):
             }
         }
         widgets['widgets'].append(new_widget)
-        ec2instance_type = ec2.Instance(ec2instance)
-        network_to_ebs = networklimit['InstanceTypes'][ec2instance_type.instance_type]['EbsInfo']['EbsOptimizedInfo']['MaximumBandwidthInMbps']
-
+        if(networklimit['InstanceTypes'][ec2instance_type.instance_type]['EbsInfo']['EbsOptimizedSupport'] != 'unsupported'):
+            network_to_ebs = networklimit['InstanceTypes'][ec2instance_type.instance_type]['EbsInfo']['EbsOptimizedInfo']['MaximumBandwidthInMbps']
+            network_to_ebs_half = network_to_ebs*0.5
+        else:
+            network_to_ebs = 0
+            network_to_ebs_half = 0
         new_widget = {
             "type": "metric",
             "width": 24,
@@ -84,7 +135,7 @@ def create_cw_dashboard(ec2_list, networklimit):
                         },
                         {
                             "label": "50% Throughput (Mbps)",
-                            "value": network_to_ebs*0.5
+                            "value": network_to_ebs_half
                         }
                     ]
                 }
@@ -166,6 +217,8 @@ def create_cw_dashboard(ec2_list, networklimit):
             if volume_speed.volume_type == "sc1":
                 new_widget['properties']['annotations']['horizontal'].append({"label": "Maximum Throughput (MBps)","value": 250})
                 flagForIOPS = False
+            if  volume_speed.volume_type == "gp3":
+                new_widget['properties']['annotations']['horizontal'].append({"label": "Maximum Throughput (MBps)","value": volume_speed.throughput})
 
             widgets['widgets'].append(new_widget)
             iopsValue = 0
@@ -215,7 +268,6 @@ def create_cw_dashboard(ec2_list, networklimit):
             }
             if volume_speed.volume_type == "gp2":
                 new_widget['properties']['annotations']['horizontal'].append({"label": "Burst IOPS","value": 3000})
-            
             widgets['widgets'].append(new_widget)
 
     dashboard = {"widgets": widgets['widgets']}
@@ -234,7 +286,7 @@ def get_instance_type_from_ids(instances):
     return list_of_instance_types
 
 
-InstanceList = ["i-0466363811a22bd0c"]
+InstanceList = ["i-08e34af30001259cd"]
 
 Instance_Speed = get_speed(get_instance_type_from_ids(InstanceList))
 

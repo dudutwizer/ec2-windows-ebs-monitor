@@ -218,7 +218,7 @@ def create_cw_dashboard(ec2_list, networklimit):
                 new_widget['properties']['annotations']['horizontal'].append({"label": "Maximum Throughput (MBps)","value": 250})
                 flagForIOPS = False
             if  volume_speed.volume_type == "gp3":
-                new_widget['properties']['annotations']['horizontal'].append({"label": "Maximum Throughput (MBps)","value": volume_speed.throughput})
+                new_widget['properties']['annotations']['horizontal'].append({"label": "Baseline Throughput (MBps)","value": volume_speed.throughput})
 
             widgets['widgets'].append(new_widget)
             iopsValue = 0
@@ -267,6 +267,8 @@ def create_cw_dashboard(ec2_list, networklimit):
                 }
             }
             if volume_speed.volume_type == "gp2":
+                new_widget['properties']['annotations']['horizontal'].append({"label": "Burst IOPS","value": 3000})
+            if volume_speed.volume_type == "gp3":
                 new_widget['properties']['annotations']['horizontal'].append({"label": "Burst IOPS","value": 3000})
             widgets['widgets'].append(new_widget)
 

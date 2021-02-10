@@ -2,11 +2,22 @@ import boto3
 import logging
 import json
 
-region = 'us-east-1'
+
+# Vars
+region = 'eu-west-1'                                            # Set the region where the instances are running
+profile = 'emea-ms-ssa'                                         # Local AWS profile to use, leave empty for default profile
+InstanceList = ["i-00675ad399fa1a53e", "i-0b434bbc6b132c8e1"]   # Add here all the instance types that you want to monitor (usually the SQL nodes)
+CloudWatch_DashboardName = "EC2-EBS-Monitor"                    # Change this var to the cloudwatch dashboard name you want to create using this script.
+                                                                # Please note that in case you specify a name that already exists, it will override the dashboard.
+
+# Do not edit from here
+
+if profile:
+    account = boto3.setup_default_session(profile_name = profile)
 
 ec2 = boto3.resource('ec2', region_name=region)
-cw = boto3.client('cloudwatch')
-ec2client = boto3.client('ec2')
+cw = boto3.client('cloudwatch', region_name=region)
+ec2client = boto3.client('ec2', region_name=region)
 
 def get_ebs(instance_id):
     instance = ec2.Instance(instance_id)
@@ -273,7 +284,7 @@ def create_cw_dashboard(ec2_list, networklimit):
             widgets['widgets'].append(new_widget)
 
     dashboard = {"widgets": widgets['widgets']}
-    result = cw.put_dashboard(DashboardName='EC2-EBS-Monitor',DashboardBody=json.dumps(dashboard))
+    result = cw.put_dashboard(DashboardName=CloudWatch_DashboardName,DashboardBody=json.dumps(dashboard))
     print(result)
 
 def get_instance_type_from_ids(instances):
@@ -287,8 +298,6 @@ def get_instance_type_from_ids(instances):
 
     return list_of_instance_types
 
-
-InstanceList = ["i-08e34af30001259cd"]
 
 Instance_Speed = get_speed(get_instance_type_from_ids(InstanceList))
 

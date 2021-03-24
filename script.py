@@ -6,7 +6,7 @@ import json
 # Vars
 region = 'eu-west-1'                                            # Set the region where the instances are running
 profile = 'emea-ms-ssa'                                         # Local AWS profile to use, leave empty for default profile
-InstanceList = ["i-00675ad399fa1a53e", "i-0b434bbc6b132c8e1"]   # Add here all the instance types that you want to monitor (usually the SQL nodes)
+InstanceList = ["i-02fe465f3355186b5", "i-0772bdba1bd4b1946"]   # Add here all the instance types that you want to monitor (usually the SQL nodes)
 CloudWatch_DashboardName = "EC2-EBS-Monitor"                    # Change this var to the cloudwatch dashboard name you want to create using this script.
                                                                 # Please note that in case you specify a name that already exists, it will override the dashboard.
 
@@ -75,22 +75,23 @@ def create_cw_dashboard(ec2_list, networklimit):
             if word.isdigit():
                 numbers.append(int(word))
 
+        # EC2 Metrics 
         new_widget = {
             "type": "metric",
             "width": 24,
             "properties": {
                 "metrics": [
-                    [ { "expression": "m1/PERIOD(m1)+m1/PERIOD(m2)", "label": "Total Bandwidth", "id": "e1", "visible": False } ], #((read bytes * read ops) + (write bytes * write ops)) / period
-                    [ { "expression": "e1*0.000008", "label": "Bandwidth (Mbps)", "id": "e2" } ], # Convert Bytes to Megabits -> 1 B = 0.000008 Mb
-                    [ "AWS/EC2", "NetworkIn", "InstanceId", ec2instance, { "visible": False, "id": "m1" } ],
-                    [ ".", "NetworkOut", ".", ".", { "visible": False, "id": "m2" } ]
+                    [ { "expression": "SUM(METRICS('network'))/PERIOD(networkOut)", "label": "Bandwidth (Bytes)", "id": "bandwidthBytes", "visible": False , "period": 300} ], #((read bytes * read ops) + (write bytes * write ops)) / period
+                    [ { "expression": "bandwidthBytes*0.000008", "label": "Bandwidth (Mbps - Megabits)", "id": "bandwidthMbps" , "period": 300} ], # Convert Bytes to Megabits -> 1 B = 0.000008 Mb
+                    [ "AWS/EC2", "NetworkIn", "InstanceId", ec2instance, { "visible": False, "id": "networkIn", "period": 300 } ],
+                    [ "AWS/EC2", "NetworkOut", "InstanceId", ec2instance, { "visible": False, "id": "networkOut" , "period": 300} ]
                 ],
                 "view": "timeSeries",
                 "stacked": False,
                 "region": region,
                 "stat": "Sum",
                 "period": 300,
-                "title": ec2instance + " -> IG",
+                "title": ec2instance + " --> Network",
                 "annotations": {
                     "horizontal": [
                         {
@@ -110,7 +111,7 @@ def create_cw_dashboard(ec2_list, networklimit):
             "width": 24,
             "height": 2,
             "properties": {
-                "markdown": "\n## " + "EC2" + " --> " + "EBS" +"\n"
+                "markdown": "\n## " + "Amazon EC2" + " --> " + "Amazon EBS" +"\n"
             }
         }
         widgets['widgets'].append(new_widget)
@@ -125,12 +126,10 @@ def create_cw_dashboard(ec2_list, networklimit):
             "width": 24,
             "properties": {
                 "metrics": [
-                    [ { "expression": "m1/PERIOD(m1)+m1/PERIOD(m2)", "label": "Total IO In Bytes", "id": "e1", "visible": False } ], #((read bytes * read ops) + (write bytes * write ops)) / period
-                    [ { "expression": "e1*0.000008", "label": "Bandwidth (Mbps)", "id": "e2" } ], # Convert Bytes to Megabits -> 1 B = 0.000008 Mb
-                    [ "AWS/EC2", "EBSReadBytes", "InstanceId", ec2instance, { "visible": False, "id": "m1" } ],
-                    [ ".", "EBSWriteBytes", ".", ".", { "visible": False, "id": "m2" } ],
-                    [ ".", "EBSReadOps", ".", ".", { "visible": False, "id": "m3" } ],
-                    [ ".", "EBSWriteOps", ".", ".", { "visible": False, "id": "m4" } ]
+                    [ { "expression": "SUM(METRICS('ebs'))/PERIOD(ebsReadBytes)", "label": "Total IO In Bytes", "id": "totalIOBytes", "visible": False , "period": 300 } ], # (ebsReadBytes + ebsWriteBytes) / Period
+                    [ { "expression": "totalIOBytes*0.000008", "label": "Bandwidth (Mbps - Megabits)", "id": "bandwidthMbps" , "period": 300} ], # Convert Bytes to Megabits -> 1 B = 0.000008 Mb
+                    [ "AWS/EC2", "EBSReadBytes", "InstanceId", ec2instance, { "visible": False, "id": "ebsReadBytes", "period": 300 } ],
+                    [ ".", "EBSWriteBytes", ".", ".", { "visible": False, "id": "ebsWriteBytes", "period": 300 } ]
                 ],
                 "view": "timeSeries",
                 "stacked": False,
@@ -184,12 +183,10 @@ def create_cw_dashboard(ec2_list, networklimit):
                 "width": 12,
                 "properties": {
                     "metrics": [
-                        [ { "expression": "m1/PERIOD(m1)+m1/PERIOD(m2)", "label": "Total IO Bytes", "id": "e1", "visible": False, "stat": "Sum", "period": 300 } ],
-                        [ { "expression": "e1*0.000001", "label": "Total Throughput (MiB/s)", "id": "e2", "stat": "Sum", "period": 300 } ], ## 1 B = 0.000001 MB
-                        [ "AWS/EBS", "VolumeWriteBytes", "VolumeId", volume, { "visible": False, "id": "m1" } ],
-                        [ ".", "VolumeReadBytes", ".", ".", { "visible": False, "id": "m2" } ],
-                        [ ".", "VolumeWriteOps", ".", ".", { "visible": False, "id": "m3" } ],
-                        [ ".", "VolumeReadOps", ".", ".", { "visible": False, "id": "m4" } ]
+                        [ { "expression": "SUM(METRICS('volume'))/PERIOD(volumeReadBytes)", "label": "Total IO (Bytes)", "id": "volumeThroughputBytes", "visible": False, "stat": "Sum", "period": 300 } ],
+                        [ { "expression": "volumeThroughputBytes/1024/1024", "label": "Total Throughput (MB/s - MegaBytes per second)", "id": "volumeThroughputMBps", "stat": "Sum", "period": 300 } ], 
+                        [ "AWS/EBS", "VolumeWriteBytes", "VolumeId", volume, { "visible": False, "id": "volumeWriteBytes", "period": 300 } ],
+                        [ "AWS/EBS", "VolumeReadBytes", "VolumeId", volume, { "visible": False, "id": "volumeReadBytes", "period": 300 } ]
                     ],
                     "view": "timeSeries",
                     "stacked": False,
@@ -229,7 +226,10 @@ def create_cw_dashboard(ec2_list, networklimit):
                 new_widget['properties']['annotations']['horizontal'].append({"label": "Maximum Throughput (MBps)","value": 250})
                 flagForIOPS = False
             if  volume_speed.volume_type == "gp3":
-                new_widget['properties']['annotations']['horizontal'].append({"label": "Baseline Throughput (MBps)","value": volume_speed.throughput})
+                if(volume_speed.throughput == 125):
+                    new_widget['properties']['annotations']['horizontal'].append({"label": "Baseline Throughput (MBps)","value": 125})
+                else:
+                    new_widget['properties']['annotations']['horizontal'].append({"label": "Provisioned Throughput (MBps)","value": volume_speed.throughput})
 
             widgets['widgets'].append(new_widget)
             iopsValue = 0
@@ -245,12 +245,9 @@ def create_cw_dashboard(ec2_list, networklimit):
                 "width": 12,
                 "properties": {
                     "metrics": [
-                        [ { "expression": "m3/PERIOD(m3)+m4/PERIOD(m4)", "label": "Total IOPS", "id": "e1", "visible": False, "stat": "Sum", "period": 300 } ],
-                        [ { "expression": "m3/PERIOD(m3)+m4/PERIOD(m4)", "label": "Total IOPS", "id": "e2", "stat": "Sum", "period": 300 } ],
-                        [ "AWS/EBS", "VolumeWriteBytes", "VolumeId", volume, { "visible": False, "id": "m1" } ],
-                        [ ".", "VolumeReadBytes", ".", ".", { "visible": False, "id": "m2" } ],
-                        [ ".", "VolumeWriteOps", ".", ".", { "visible": False, "id": "m3" } ],
-                        [ ".", "VolumeReadOps", ".", ".", { "visible": False, "id": "m4" } ]
+                        [ { "expression": "SUM(METRICS('volume'))/PERIOD(volumeReadOps)", "label": "Total IOPS (Operations Per Second)", "id": "totalIOPS", "stat": "Sum", "period": 300 } ],
+                        [ "AWS/EBS", "VolumeWriteOps", "VolumeId", volume, { "visible": False, "id": "volumeWriteOps", "period": 300 } ],
+                        [ "AWS/EBS", "VolumeReadOps", "VolumeId", volume, { "visible": False, "id": "volumeReadOps" , "period": 300} ]
                     ],
                     "view": "timeSeries",
                     "stacked": False,
@@ -279,11 +276,11 @@ def create_cw_dashboard(ec2_list, networklimit):
             }
             if volume_speed.volume_type == "gp2":
                 new_widget['properties']['annotations']['horizontal'].append({"label": "Burst IOPS","value": 3000})
-            if volume_speed.volume_type == "gp3":
+            if volume_speed.volume_type == "gp3" and iopsValue != 3000:
                 new_widget['properties']['annotations']['horizontal'].append({"label": "Burst IOPS","value": 3000})
             widgets['widgets'].append(new_widget)
 
-    dashboard = {"widgets": widgets['widgets']}
+    dashboard = {"periodOverride": "inherit", "widgets": widgets['widgets']}
     result = cw.put_dashboard(DashboardName=CloudWatch_DashboardName,DashboardBody=json.dumps(dashboard))
     print(result)
 

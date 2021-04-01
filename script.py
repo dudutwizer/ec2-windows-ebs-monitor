@@ -6,7 +6,7 @@ import json
 # Vars
 region = 'eu-west-1'                                            # Set the region where the instances are running
 profile = 'emea-ms-ssa'                                         # Local AWS profile to use, leave empty for default profile
-InstanceList = ["i-02fe465f3355186b5", "i-0772bdba1bd4b1946"]   # Add here all the instance types that you want to monitor (usually the SQL nodes)
+InstanceList = ["i-03bd8ed564576f2eb", "i-0fd6aa9fbc847b735"]   # Add here all the instance types that you want to monitor (usually the SQL nodes)
 CloudWatch_DashboardName = "EC2-EBS-Monitor"                    # Change this var to the cloudwatch dashboard name you want to create using this script.
                                                                 # Please note that in case you specify a name that already exists, it will override the dashboard.
 
@@ -64,7 +64,7 @@ def create_cw_dashboard(ec2_list, networklimit):
             "width": 24,
             "height": 2,
             "properties": {
-                "markdown": "\n## " + "EC2 (" + ec2instance_type.instance_type + ") --> " + "Internet Gateway" +"\n"
+                "markdown": "\n## " + "EC2 (" + ec2instance_type.instance_type + ") --> " + "Network" +"\n"
             }
         }
         widgets['widgets'].append(new_widget)
@@ -81,7 +81,7 @@ def create_cw_dashboard(ec2_list, networklimit):
             "width": 24,
             "properties": {
                 "metrics": [
-                    [ { "expression": "SUM(METRICS('network'))/PERIOD(networkOut)", "label": "Bandwidth (Bytes)", "id": "bandwidthBytes", "visible": False , "period": 300} ], #((read bytes * read ops) + (write bytes * write ops)) / period
+                    [ { "expression": "SUM(METRICS('network'))/PERIOD(networkOut)", "label": "Bandwidth (Bytes)", "id": "bandwidthBytes", "visible": False , "period": 300} ], 
                     [ { "expression": "bandwidthBytes*0.000008", "label": "Bandwidth (Mbps - Megabits)", "id": "bandwidthMbps" , "period": 300} ], # Convert Bytes to Megabits -> 1 B = 0.000008 Mb
                     [ "AWS/EC2", "NetworkIn", "InstanceId", ec2instance, { "visible": False, "id": "networkIn", "period": 300 } ],
                     [ "AWS/EC2", "NetworkOut", "InstanceId", ec2instance, { "visible": False, "id": "networkOut" , "period": 300} ]
@@ -111,16 +111,20 @@ def create_cw_dashboard(ec2_list, networklimit):
             "width": 24,
             "height": 2,
             "properties": {
-                "markdown": "\n## " + "Amazon EC2" + " --> " + "Amazon EBS" +"\n"
+                "markdown": "\n## " + "Amazon EC2" + " --> " + "Amazon EBS (Throughput)" +"\n"
             }
         }
         widgets['widgets'].append(new_widget)
         if(networklimit['InstanceTypes'][ec2instance_type.instance_type]['EbsInfo']['EbsOptimizedSupport'] != 'unsupported'):
             network_to_ebs = networklimit['InstanceTypes'][ec2instance_type.instance_type]['EbsInfo']['EbsOptimizedInfo']['MaximumBandwidthInMbps']
             network_to_ebs_half = network_to_ebs*0.5
+            network_to_ebs_iops = networklimit['InstanceTypes'][ec2instance_type.instance_type]['EbsInfo']['EbsOptimizedInfo']['MaximumIops']
+            network_to_ebs_iops_half = network_to_ebs_iops*0.5
         else:
             network_to_ebs = 0
             network_to_ebs_half = 0
+            network_to_ebs_iops = 0
+            network_to_ebs_iops_half = 0
         new_widget = {
             "type": "metric",
             "width": 24,
@@ -146,6 +150,49 @@ def create_cw_dashboard(ec2_list, networklimit):
                         {
                             "label": "50% Throughput (Mbps)",
                             "value": network_to_ebs_half
+                        }
+                    ]
+                }
+            }
+        }
+        widgets['widgets'].append(new_widget)
+
+
+        ## Instance -> EBS
+        new_widget = {
+            "type": "text",
+            "width": 24,
+            "height": 2,
+            "properties": {
+                "markdown": "\n## " + "Amazon EC2" + " --> " + "Amazon EBS (IOPS)" +"\n"
+            }
+        }
+        widgets['widgets'].append(new_widget)
+
+        new_widget = {
+            "type": "metric",
+            "width": 24,
+            "properties": {
+                "metrics": [
+                    [ { "expression": "SUM(METRICS('ebs'))/PERIOD(ebsWriteOps)", "label": "Total IOPS", "id": "totalIOPS", "visible": True , "period": 300 } ], 
+                    [ "AWS/EC2", "EBSWriteOps", "InstanceId", ec2instance, { "visible": False, "id": "ebsReadOps", "period": 300 } ],
+                    [ ".", "EBSReadOps", ".", ".", { "visible": False, "id": "ebsWriteOps", "period": 300 } ]
+                ],
+                "view": "timeSeries",
+                "stacked": False,
+                "region": region,
+                "stat": "Sum",
+                "period": 300,
+                "title": ec2instance + " -> EBS (IOPS)",
+                "annotations": {
+                    "horizontal": [
+                        {
+                            "label": "Maximum IOPS",
+                            "value": network_to_ebs_iops
+                        },
+                        {
+                            "label": "50% IOPS",
+                            "value": network_to_ebs_iops_half
                         }
                     ]
                 }

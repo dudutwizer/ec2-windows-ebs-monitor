@@ -1,18 +1,24 @@
 import boto3
-import logging
+import argparse
 import json
 
+parser = argparse.ArgumentParser(description='Helper tool to generate Amazon CloudWatch Dashboard with all EBS volumes attached to the instances and their important metrics')
+parser.add_argument("--region", type=str, help="Set the region where the instances are running. Default is us-east-1", nargs='?', default='us-east-1')
+parser.add_argument("--profile", type=str, help="Local AWS profile to use, leave empty for default profile", nargs='?', default="")
+parser.add_argument("--InstanceList", default=[], help="<Required> Add here all the instance types that you want to monitor (i.e: 'i-example i-example2''", nargs='+', required=True)
+parser.add_argument("--DashboardName" , type=str ,help="Set the cloudwatch dashboard name you want to create using this CLI. Please note that in case you specify a name that already exists, it will override the dashboard.", default='EC2-EBS-Monitor', nargs='?')
+
+args = parser.parse_args()
 
 # Vars
-region = 'eu-west-1'                                            # Set the region where the instances are running
-profile = 'emea-ms-ssa'                                         # Local AWS profile to use, leave empty for default profile
-InstanceList = ["i-03bd8ed564576f2eb", "i-0fd6aa9fbc847b735"]   # Add here all the instance types that you want to monitor (usually the SQL nodes)
-CloudWatch_DashboardName = "EC2-EBS-Monitor"                    # Change this var to the cloudwatch dashboard name you want to create using this script.
-                                                                # Please note that in case you specify a name that already exists, it will override the dashboard.
+region = args.region
+profile = args.profile
+InstanceList = args.InstanceList
+CloudWatch_DashboardName = args.DashboardName
 
 # Do not edit from here
 
-if profile:
+if profile != "":
     account = boto3.setup_default_session(profile_name = profile)
 
 ec2 = boto3.resource('ec2', region_name=region)
@@ -40,25 +46,40 @@ def get_speed(instances):
         network_per_instance['InstanceTypes'].update(instance_details)
     return network_per_instance
 
+def get_instance_name(instance_id):
+    ec2instance = ec2.Instance(instance_id)
+    instancename = ' '
+    for tags in ec2instance.tags:
+        if tags["Key"] == 'Name':
+            instancename = tags["Value"]
+    return instancename
+
 def create_cw_dashboard(ec2_list, networklimit):
     widgets = {"widgets": []}
-
+    number = 1
     # EBS to the EC2
     for ec2instance in ec2_list:
+        instance_name = get_instance_name(ec2instance)
+        ec2instance_type = ec2.Instance(ec2instance)
+        ec2_details = ec2client.describe_instance_types(InstanceTypes=[ec2instance_type.instance_type])
+        ebs_volumes = get_ebs(ec2instance) ## get all EBS volumes per instance
+
         ## New instance Header
         new_widget = {
             "type": "text",
             "width": 24,
-            "height": 2,
+            "height": 4,
             "properties": {
-                "markdown": "\n# " + ec2instance +"\n"
+                "markdown": f'\n# Report #{number}\
+                            \n\n**Instance ID:** {ec2instance} \
+                            \n\n**Tag:Name:** {instance_name} \
+                            \n\n**InstanceType:** {ec2instance_type.instance_type} \
+                            \n\n**Attached Volumes:** {ebs_volumes}'
             }
         }
         widgets['widgets'].append(new_widget)
 
         ## Instance -> Internet Gateway
-        ec2instance_type = ec2.Instance(ec2instance)
-        ec2_details = ec2client.describe_instance_types(InstanceTypes=[ec2instance_type.instance_type])
         new_widget = {
             "type": "text",
             "width": 24,
@@ -111,7 +132,7 @@ def create_cw_dashboard(ec2_list, networklimit):
             "width": 24,
             "height": 2,
             "properties": {
-                "markdown": "\n## " + "Amazon EC2" + " --> " + "Amazon EBS (Throughput)" +"\n"
+                "markdown": "\n## " + "Amazon EC2" + " --> " + "Amazon EBS" +"\n"
             }
         }
         widgets['widgets'].append(new_widget)
@@ -127,7 +148,7 @@ def create_cw_dashboard(ec2_list, networklimit):
             network_to_ebs_iops_half = 0
         new_widget = {
             "type": "metric",
-            "width": 24,
+            "width": 12,
             "properties": {
                 "metrics": [
                     [ { "expression": "SUM(METRICS('ebs'))/PERIOD(ebsReadBytes)", "label": "Total IO In Bytes", "id": "totalIOBytes", "visible": False , "period": 300 } ], # (ebsReadBytes + ebsWriteBytes) / Period
@@ -140,7 +161,7 @@ def create_cw_dashboard(ec2_list, networklimit):
                 "region": region,
                 "stat": "Sum",
                 "period": 300,
-                "title": ec2instance + " -> EBS",
+                "title": ec2instance + " -> EBS (Throughput)",
                 "annotations": {
                     "horizontal": [
                         {
@@ -157,21 +178,9 @@ def create_cw_dashboard(ec2_list, networklimit):
         }
         widgets['widgets'].append(new_widget)
 
-
-        ## Instance -> EBS
-        new_widget = {
-            "type": "text",
-            "width": 24,
-            "height": 2,
-            "properties": {
-                "markdown": "\n## " + "Amazon EC2" + " --> " + "Amazon EBS (IOPS)" +"\n"
-            }
-        }
-        widgets['widgets'].append(new_widget)
-
         new_widget = {
             "type": "metric",
-            "width": 24,
+            "width": 12,
             "properties": {
                 "metrics": [
                     [ { "expression": "SUM(METRICS('ebs'))/PERIOD(ebsWriteOps)", "label": "Total IOPS", "id": "totalIOPS", "visible": True , "period": 300 } ], 
@@ -183,7 +192,7 @@ def create_cw_dashboard(ec2_list, networklimit):
                 "region": region,
                 "stat": "Sum",
                 "period": 300,
-                "title": ec2instance + " -> EBS (IOPS)",
+                "title": ec2instance + " -> Amazon EBS (IOPS)",
                 "annotations": {
                     "horizontal": [
                         {
@@ -206,12 +215,10 @@ def create_cw_dashboard(ec2_list, networklimit):
             "width": 24,
             "height": 2,
             "properties": {
-                "markdown": "\n## EBS --> EC2 \n"
+                "markdown": "\n## Amazon EBS --> Amazon EC2 \n"
             }
         }
         widgets['widgets'].append(new_widget)
-
-        ebs_volumes = get_ebs(ec2instance) ## get all EBS volumes per instance
 
         for volume in ebs_volumes:
             volume_speed = ec2.Volume(volume)
@@ -326,6 +333,7 @@ def create_cw_dashboard(ec2_list, networklimit):
             if volume_speed.volume_type == "gp3" and iopsValue != 3000:
                 new_widget['properties']['annotations']['horizontal'].append({"label": "Burst IOPS","value": 3000})
             widgets['widgets'].append(new_widget)
+        number += 1
 
     dashboard = {"periodOverride": "inherit", "widgets": widgets['widgets']}
     result = cw.put_dashboard(DashboardName=CloudWatch_DashboardName,DashboardBody=json.dumps(dashboard))

@@ -1,24 +1,21 @@
-# EC2-> EBS auto cloudwatch dashboard
+# Optimize SQL Workloads with Amazon CloudWatch
 
-This code will help you create CloudWatch Dashboard to monitor the EBS performances and the Instance network performance.
+The script takes an instance-id list as input, and it will create a dashboard with all the attached EBS volumes and their limits. The automatic annotation function will create a red line that indicates the maximum of each resource.
 
-To use this script change the Region and Instance list as following:
+To use the script, run the following code snippet.
+
 ```
-Region = "us-east-1" #Change this to the right region
-InstanceList = ["i-0466363811a22bd0c"] # Change this to the list of instances you want to create the dashboard
+# Prerequisites 
+python3 -m venv env 
+source env/bin/activate
+pip3 install -r requirements.txt
+
+# Running the script
+python3 create-cw-dashboard.py --InstanceList i-example1 i-example2 --region eu-west-1
 ```
 
 Here is an example of the output
 
 ![example](example.png)
 
-# How to run the script with Python virtual Environment 
-
-```
-python3 -m venv env 
-source env/bin/activate
-pip install requirements.txt
-python3 script.py
-```
-
-You will need to make sure you have access key and secret key configured on the machine see [Link](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html) 
+You will need to make sure you have an access key, and secret key configured on the machine see [Link](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html) 
